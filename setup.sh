@@ -26,8 +26,7 @@ usage() {
   echo "  --docker-username    <username>       Your Docker Hub username."
   echo "  --docker-password    <password>       Your Docker Hub password or access token."
   echo "  --app-domain         <domain>         The root domain for the application (e.g., example.com)."
-  echo "  --postgres-password  <password>       The secret password for the Postgres database."
-  echo "  --jwt-secret         <secret>         A long, random string for the JWT secret."
+
   echo "  -h, --help                            Display this help message."
 }
 
@@ -47,14 +46,6 @@ while [[ $# -gt 0 ]]; do
       APP_DOMAIN="$2"
       shift; shift
       ;;
-    --postgres-password)
-      POSTGRES_PASSWORD="$2"
-      shift; shift
-      ;;
-    --jwt-secret)
-      JWT_SECRET="$2"
-      shift; shift
-      ;;
     -h|--help)
       usage
       exit 0
@@ -68,7 +59,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check for mandatory arguments
-if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ] || [ -z "$APP_DOMAIN" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$JWT_SECRET" ]; then
+if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ] || [ -z "$APP_DOMAIN" ]; then
     echo "Error: Missing one or more required arguments."
     usage
     exit 1
@@ -88,7 +79,7 @@ echo "This script will install Docker, Docker Compose, and set up the environmen
 # 2. Install Dependencies
 print_header "Installing Dependencies (Docker, Docker Compose, Git)"
 
-if ! command_exists docker || ! command_exists docker-compose;
+if ! command_exists docker || ! command_exists docker-compose; then
   apt-get update
   apt-get install -y docker.io docker-compose git
 
@@ -97,7 +88,7 @@ if ! command_exists docker || ! command_exists docker-compose;
 
   echo "Docker and Docker Compose installed successfully."
   echo "NOTE: You will need to log out and log back in for Docker group changes to apply."
- else
+else
   echo "Docker and Docker Compose are already installed."
 fi
 
@@ -113,8 +104,13 @@ mkdir -p "$DEPLOY_DIR"
 
 ORCHESTRATOR_IMAGE="invisiblelife/orchestrator:latest"
 
+OPERATIONS_IMAGE="invisiblelife/operations:latest"
+
 echo "Pulling the latest orchestrator image: $ORCHESTRATOR_IMAGE"
 docker pull "$ORCHESTRATOR_IMAGE"
+
+echo "Pulling the latest operations image: $OPERATIONS_IMAGE"
+docker pull "$OPERATIONS_IMAGE"
 
 # 5. Extract Orchestration Files
 echo "Extracting orchestration files to $DEPLOY_DIR"
@@ -131,6 +127,26 @@ docker rm -v "$CONTAINER_ID"
 # 6. Create .env file
 print_header "Creating Production .env File"
 
+echo "--> Generating random secrets for Postgres..."
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+
+# Generate a JWT Secret that is at least 32 characters long
+JWT_SECRET=$(openssl rand -base64 32)
+
+echo "--> Running JWT generation script from operations image..."
+JWT_OUTPUT=$(docker run --rm -e JWT_SECRET="$JWT_SECRET" $OPERATIONS_IMAGE node dist/generateJwts.js)
+
+# Extract keys from the output
+ANON_KEY=$(echo "$JWT_OUTPUT" | grep 'ANON_KEY' | cut -d'=' -f2)
+SERVICE_ROLE_KEY=$(echo "$JWT_OUTPUT" | grep 'SERVICE_ROLE_KEY' | cut -d'=' -f2)
+
+if [ -z "$ANON_KEY" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+    echo "Error: Failed to generate Supabase JWTs. Aborting."
+    exit 1
+fi
+
+echo "--> Secrets and keys generated successfully."
+
 ENV_FILE="$DEPLOY_DIR/.env"
 
 cat > "$ENV_FILE" << EOL
@@ -141,6 +157,8 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 # Supabase/GoTrue
 JWT_SECRET=$JWT_SECRET
+ANON_KEY=$ANON_KEY
+SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
 
 # Caddy Reverse Proxy
 APP_DOMAIN=$APP_DOMAIN
