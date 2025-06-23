@@ -1,50 +1,83 @@
-# Invisible Application Setup
+# Invisible Platform Deployment
 
-## Overview
+This guide provides the instructions to deploy the entire Invisible platform onto a fresh Ubuntu server using a single command. The process uses pre-built Docker Hub images and requires no source code on the target machine.
 
-This repository contains a setup script designed to provision a bare Ubuntu server to run the complete Invisible application stack. The script installs all necessary dependencies, configures the environment, and prepares the system to be managed by the `invisible-orchestrator`.
+## 1. Prerequisites
 
-## Prerequisites
+- A fresh Ubuntu 22.04 server.
+- A registered domain name.
+- Your Docker Hub credentials (username and password/access token).
 
-1.  A server running a fresh installation of **Ubuntu 22.04 LTS**.
-2.  You have **sudo privileges** on the server.
-3.  You have pointed the necessary **DNS records** to your server's public IP address. At a minimum, you will need:
-    *   `chat.your-domain.com`
-    *   `hub.your-domain.com`
-    *   `api.your-domain.com`
+## 2. DNS Configuration
 
-## Usage
+Before running the setup script, you must configure your domain's DNS records to point to your server's public IP address. This allows the platform's reverse proxy to correctly route traffic to each service.
 
-1.  SSH into your new Ubuntu server.
+Create the following two records in your DNS provider's dashboard:
 
-2.  Clone this repository:
-    ```bash
-    git clone https://github.com/your-github-username/invisible-setup.git
-    cd invisible-setup
-    ```
+1.  **A Record (for the root domain)**
+    -   **Type**: `A`
+    -   **Name**: `@` (or your domain, e.g., `example.com`)
+    -   **Value**: `YOUR_SERVER_IP_ADDRESS`
 
-3.  Make the setup script executable:
-    ```bash
-    chmod +x setup.sh
-    ```
+2.  **CNAME Record (for all subdomains)**
+    -   **Type**: `CNAME`
+    -   **Name**: `*`
+    -   **Value**: `@` (or your domain, e.g., `example.com`)
 
-4.  Run the script with `sudo`, providing all the required arguments. Be sure to wrap any values with special characters in quotes.
+This wildcard setup (`*`) is required for the platform's services to function correctly.
 
-    **Example:**
-    ```bash
-    sudo ./setup.sh \
-      --docker-username "your-docker-user" \
-      --docker-password "your-docker-password" \
-      --app-domain "your-domain.com" \
-      --postgres-password "your-db-password" \
-      --jwt-secret "a-very-long-and-random-secret-string"
-    ```
+> **Note:** DNS changes can take some time to propagate.
 
-5.  To see all available options, run:
-    ```bash
-    ./setup.sh --help
-    ```
+## 3. Deployment from a Fresh Ubuntu Machine
 
-## Post-Setup
+Connect to your server via SSH and run the single command below. This is all you need to do.
 
-After the script completes, it will provide final instructions on how to start, manage, and monitor your application stack using `docker-compose` from the `/opt/invisible` directory.
+The script will automatically:
+- Install Docker and all other dependencies.
+- Prompt you for your Docker Hub credentials and domain name.
+- Fetch all configuration and application images from Docker Hub.
+- Generate all necessary secrets.
+- Launch the entire application stack.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/invisible-life/invisible-setup/main/setup.sh | sudo bash
+```
+
+You can also provide the details as command-line arguments to skip the interactive prompts:
+```bash
+sudo bash -s -- --docker-username "..." --docker-password "..." --app-domain "..."
+```
+
+## 4. Your Services
+
+Once the script completes, your platform will be running. The key public services will be available at these domains:
+
+-   **API Gateway**: `https://api.your-domain.com`
+-   **Chat UI**: `https://chat.your-domain.com`
+-   **UI Hub**: `https://hub.your-domain.com`
+
+All services are managed via Docker Compose in the `/opt/invisible` directory on your server.
+
+## 5. Secure Database Access
+
+For security, the database and its admin studio are **not** exposed to the public internet. To manage your database, connect from your local machine using a secure SSH tunnel.
+
+**1. Establish the SSH Tunnel**
+
+Open a new terminal window on your local machine and run the following command. This will forward your local port `5432` to the server's database port.
+
+```bash
+ssh -N -L 5432:localhost:5432 YOUR_SERVER_USER@YOUR_SERVER_IP_ADDRESS
+```
+
+Keep this terminal window open while you are connected to the database.
+
+**2. Connect with a Database Client**
+
+You can now use any local database client (e.g., DBeaver, TablePlus, or the local Supabase Studio app) to connect to your database using these credentials:
+
+-   **Host**: `localhost`
+-   **Port**: `5432`
+-   **Database**: `postgres`
+-   **User**: `postgres`
+-   **Password**: The `POSTGRES_PASSWORD` generated during setup. You can find this in the `.env` file located at `/opt/invisible/.env` on your server.
