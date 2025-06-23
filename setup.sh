@@ -81,7 +81,7 @@ print_header "Installing Dependencies (Docker, Docker Compose, Git)"
 
 if ! command_exists docker || ! command_exists docker-compose; then
   apt-get update
-  apt-get install -y docker.io docker-compose git
+  apt-get install -y docker.io docker-compose git jq
 
   # Add current user to the docker group to avoid using sudo for docker commands
   usermod -aG docker ${SUDO_USER}
@@ -123,6 +123,20 @@ docker cp "$CONTAINER_ID:/app/." "$DEPLOY_DIR"
 
 # Clean up the temporary container
 docker rm -v "$CONTAINER_ID"
+
+# Copy and prepare utility scripts
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+echo "--> Copying add-ssh-key.sh to deployment directory..."
+cp "$SCRIPT_DIR/add-ssh-key.sh" "$DEPLOY_DIR/"
+
+echo "--> Making add-ssh-key.sh executable..."
+chmod +x "$DEPLOY_DIR/add-ssh-key.sh"
+
+echo "--> Copying get-auth-code.sh to deployment directory..."
+cp "$SCRIPT_DIR/get-auth-code.sh" "$DEPLOY_DIR/"
+
+echo "--> Making get-auth-code.sh executable..."
+chmod +x "$DEPLOY_DIR/get-auth-code.sh"
 
 # 6. Create .env file
 print_header "Creating Production .env File"
