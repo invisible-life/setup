@@ -111,7 +111,7 @@ print_header "Setting up Deployment Directory"
 DEPLOY_DIR="/opt/invisible"
 mkdir -p "$DEPLOY_DIR"
 
-ORCHESTRATOR_IMAGE="kermankohli/invisible-orchestrator:latest"
+ORCHESTRATOR_IMAGE="invisiblelife/orchestrator:latest"
 
 echo "Pulling the latest orchestrator image: $ORCHESTRATOR_IMAGE"
 docker pull "$ORCHESTRATOR_IMAGE"
