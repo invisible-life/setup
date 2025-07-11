@@ -185,10 +185,17 @@ source "$ENV_FILE"
 source "$DEPLOY_DIR/.env.ip-access"
 set +o allexport
 
+# Use correct docker compose command
+if docker compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE="docker compose"
+else
+  DOCKER_COMPOSE="docker-compose"
+fi
+
 # Restart services with new configuration
 echo "Restarting services with IP-based configuration..."
-sudo -E -u ${SUDO_USER} docker-compose down
-sudo -E -u ${SUDO_USER} docker-compose up -d
+sudo -E -u ${SUDO_USER} $DOCKER_COMPOSE down
+sudo -E -u ${SUDO_USER} $DOCKER_COMPOSE up -d
 
 # Wait for services to start
 echo "Waiting for services to initialize..."
