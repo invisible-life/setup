@@ -294,7 +294,7 @@ stage_4_generate_env() {
   cd "$DEPLOY_DIR"
   
   export APP_DOMAIN="$APP_DOMAIN"
-  export DOCKER_HUB_TOKEN="$DOCKER_PASSWORD"
+  export DOCKER_HUB_TOKEN="${DOCKER_PASSWORD:-}"
   export NO_DOMAIN="${NO_DOMAIN:-false}"
   
   print_header "Running configuration script"
