@@ -6,7 +6,7 @@ set -euo pipefail
 STAGE_FILE="/tmp/.invisible_setup_stage"
 LOCK_FILE="/var/lock/invisible_setup.lock"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/invisible}"
-CONFIG_IMAGE="${CONFIG_IMAGE:-invisiblelife/orchestrator-config:latest}"
+CONFIG_IMAGE="${CONFIG_IMAGE:-kermankohli/operations-api:latest}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Color codes ---
@@ -243,30 +243,40 @@ stage_3_fetch_config() {
     chown ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   fi
   
-  # Clone orchestrator repository
-  print_header "Cloning orchestrator configuration"
-  TEMP_DIR="/tmp/invisible-orchestrator-$$"
-  if ! retry_command "git clone https://github.com/invisible-life/orchestrator.git $TEMP_DIR"; then
-    print_error "Failed to clone orchestrator repository"
-    exit 1
-  fi
+  # For now, we'll use the orchestrator repo directly since the config image doesn't exist yet
+  # TODO: Create and use a proper config Docker image
+  print_header "Downloading orchestrator configuration"
   
-  print_header "Copying configuration files"
-  # Copy all files from orchestrator to deploy directory
-  cp -r "$TEMP_DIR"/* "$DEPLOY_DIR/"
-  chown -R ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
+  # Download specific files we need from the orchestrator repo
+  local base_url="https://raw.githubusercontent.com/invisible-life/orchestrator/main"
+  local files=(
+    "docker-compose.yml"
+    "setup.sh"
+    "caddy/Caddyfile"
+    "caddy/Caddyfile.no-domain"
+    "prepare-caddy.sh"
+    "supabase/kong.yml.tpl"
+  )
   
-  # Clean up temp directory
-  rm -rf "$TEMP_DIR"
-  
-  # Verify essential files
-  local required_files=("setup.sh" "docker-compose.yml")
-  for file in "${required_files[@]}"; do
-    if [ ! -f "$DEPLOY_DIR/$file" ]; then
-      print_error "Required file missing: $file"
+  for file in "${files[@]}"; do
+    local dir=$(dirname "$file")
+    if [ "$dir" != "." ]; then
+      mkdir -p "$DEPLOY_DIR/$dir"
+    fi
+    
+    print_header "Downloading $file"
+    if ! retry_command "curl -fsSL $base_url/$file -o $DEPLOY_DIR/$file"; then
+      print_error "Failed to download $file"
       exit 1
     fi
   done
+  
+  # Make scripts executable
+  chmod +x "$DEPLOY_DIR/setup.sh" 2>/dev/null || true
+  chmod +x "$DEPLOY_DIR/prepare-caddy.sh" 2>/dev/null || true
+  
+  # Set ownership
+  chown -R ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   
   # Copy helper scripts if they exist
   if [ -f "$SCRIPT_DIR/configure-ip-access.sh" ]; then
@@ -279,7 +289,7 @@ stage_3_fetch_config() {
     chmod +x "$DEPLOY_DIR/get-email-code.sh"
   fi
   
-  print_success "Configuration files fetched successfully"
+  print_success "Configuration files downloaded successfully"
   
   save_stage 3
 }
