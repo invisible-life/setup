@@ -6,7 +6,7 @@ set -euo pipefail
 STAGE_FILE="/tmp/.invisible_setup_stage"
 LOCK_FILE="/var/lock/invisible_setup.lock"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/invisible}"
-CONFIG_IMAGE="${CONFIG_IMAGE:-kermankohli/operations-api:latest}"
+CONFIG_IMAGE="${CONFIG_IMAGE:-invisiblelife/orchestrator:latest}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Color codes ---
@@ -243,40 +243,34 @@ stage_3_fetch_config() {
     chown ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   fi
   
-  # For now, we'll use the orchestrator repo directly since the config image doesn't exist yet
-  # TODO: Create and use a proper config Docker image
-  print_header "Downloading orchestrator configuration"
+  # Pull the orchestrator configuration image
+  print_header "Pulling orchestrator configuration image"
+  if ! retry_command "sudo -u ${SUDO_USER} docker pull $CONFIG_IMAGE"; then
+    print_error "Failed to pull configuration image: $CONFIG_IMAGE"
+    exit 1
+  fi
   
-  # Download specific files we need from the orchestrator repo
-  local base_url="https://raw.githubusercontent.com/invisible-life/orchestrator/main"
-  local files=(
-    "docker-compose.yml"
-    "setup.sh"
-    "caddy/Caddyfile"
-    "caddy/Caddyfile.no-domain"
-    "prepare-caddy.sh"
-    "supabase/kong.yml.tpl"
-  )
+  # Create a temporary container to extract files
+  CONTAINER_ID=$(sudo -u ${SUDO_USER} docker create "$CONFIG_IMAGE")
   
-  for file in "${files[@]}"; do
-    local dir=$(dirname "$file")
-    if [ "$dir" != "." ]; then
-      mkdir -p "$DEPLOY_DIR/$dir"
-    fi
-    
-    print_header "Downloading $file"
-    if ! retry_command "curl -fsSL $base_url/$file -o $DEPLOY_DIR/$file"; then
-      print_error "Failed to download $file"
+  print_header "Extracting configuration files"
+  if ! sudo -u ${SUDO_USER} docker cp "$CONTAINER_ID:/app/." "$DEPLOY_DIR"; then
+    print_error "Failed to extract configuration files"
+    docker rm -v "$CONTAINER_ID" 2>/dev/null || true
+    exit 1
+  fi
+  
+  # Clean up container
+  sudo -u ${SUDO_USER} docker rm -v "$CONTAINER_ID"
+  
+  # Verify essential files
+  local required_files=("setup.sh" "docker-compose.yml")
+  for file in "${required_files[@]}"; do
+    if [ ! -f "$DEPLOY_DIR/$file" ]; then
+      print_error "Required file missing: $file"
       exit 1
     fi
   done
-  
-  # Make scripts executable
-  chmod +x "$DEPLOY_DIR/setup.sh" 2>/dev/null || true
-  chmod +x "$DEPLOY_DIR/prepare-caddy.sh" 2>/dev/null || true
-  
-  # Set ownership
-  chown -R ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   
   # Copy helper scripts if they exist
   if [ -f "$SCRIPT_DIR/configure-ip-access.sh" ]; then
@@ -289,7 +283,7 @@ stage_3_fetch_config() {
     chmod +x "$DEPLOY_DIR/get-email-code.sh"
   fi
   
-  print_success "Configuration files downloaded successfully"
+  print_success "Configuration files extracted successfully"
   
   save_stage 3
 }
