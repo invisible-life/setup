@@ -109,9 +109,9 @@ get_current_stage() {
 
 save_config() {
   cat > /tmp/.invisible_setup_config <<EOF
-DOCKER_USERNAME="${DOCKER_USERNAME}"
-APP_DOMAIN="${APP_DOMAIN}"
-NO_DOMAIN="${NO_DOMAIN}"
+DOCKER_USERNAME="${DOCKER_USERNAME:-}"
+APP_DOMAIN="${APP_DOMAIN:-}"
+NO_DOMAIN="${NO_DOMAIN:-false}"
 EOF
 }
 
@@ -222,7 +222,7 @@ stage_2_docker_login() {
   if docker pull hello-world >/dev/null 2>&1; then
     print_success "Already logged into Docker Hub"
   else
-    if [ -z "$DOCKER_PASSWORD" ]; then
+    if [ -z "${DOCKER_PASSWORD:-}" ]; then
       print_error "Docker password required for login."
       echo "Please run with --docker-password or provide it interactively."
       exit 1
@@ -497,18 +497,18 @@ echo "Starting from stage $((CURRENT_STAGE + 1))..."
 
 # Interactive prompts for missing arguments
 if [ "$CURRENT_STAGE" -lt 2 ]; then
-  if [ -z "$DOCKER_USERNAME" ]; then
+  if [ -z "${DOCKER_USERNAME:-}" ]; then
     read -p "Enter your Docker Hub username: " DOCKER_USERNAME
   fi
   
-  if [ -z "$DOCKER_PASSWORD" ]; then
+  if [ -z "${DOCKER_PASSWORD:-}" ]; then
     read -sp "Enter your Docker Hub password or access token: " DOCKER_PASSWORD
     echo ""
   fi
 fi
 
 if [ "$CURRENT_STAGE" -lt 4 ]; then
-  if [ "$NO_DOMAIN" = false ] && [ -z "$APP_DOMAIN" ]; then
+  if [ "$NO_DOMAIN" = false ] && [ -z "${APP_DOMAIN:-}" ]; then
     echo ""
     echo "Do you want to set up with a domain name?"
     echo "  1) Yes, I have a domain (recommended for production)"
@@ -530,12 +530,12 @@ fi
 save_config
 
 # Validate required inputs
-if [ "$CURRENT_STAGE" -lt 2 ] && [ -z "$DOCKER_USERNAME" ]; then
+if [ "$CURRENT_STAGE" -lt 2 ] && [ -z "${DOCKER_USERNAME:-}" ]; then
   print_error "Docker username is required."
   exit 1
 fi
 
-if [ "$CURRENT_STAGE" -lt 4 ] && [ -z "$APP_DOMAIN" ] && [ "$NO_DOMAIN" = false ]; then
+if [ "$CURRENT_STAGE" -lt 4 ] && [ -z "${APP_DOMAIN:-}" ] && [ "$NO_DOMAIN" = false ]; then
   print_error "App domain is required."
   exit 1
 fi
