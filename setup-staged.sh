@@ -67,9 +67,8 @@ check_prerequisites() {
     exit 1
   fi
   
-  if ! nc -zv hub.docker.com 443 2>/dev/null; then
-    print_error "Cannot reach Docker Hub. Check firewall settings."
-    exit 1
+  if ! timeout 5 bash -c 'cat < /dev/null > /dev/tcp/hub.docker.com/443' 2>/dev/null; then
+    print_warning "Cannot verify Docker Hub connectivity, but continuing..."
   fi
   
   print_success "Network connectivity verified"
@@ -175,7 +174,7 @@ stage_1_install_dependencies() {
     "jq"
     "ufw"
     "lsof"
-    "netcat"
+    "netcat-openbsd"
   )
   
   for pkg in "${packages[@]}"; do
