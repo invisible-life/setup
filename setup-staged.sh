@@ -331,6 +331,13 @@ stage_5_start_services() {
   # Configure IP access if in no-domain mode
   if [ "$NO_DOMAIN" = "true" ]; then
     print_header "Configuring services for IP-based access"
+    
+    # Copy latest version of configure-ip-access.sh if available
+    if [ -f "$SCRIPT_DIR/configure-ip-access.sh" ]; then
+      cp "$SCRIPT_DIR/configure-ip-access.sh" "$DEPLOY_DIR/"
+      chmod +x "$DEPLOY_DIR/configure-ip-access.sh"
+    fi
+    
     if [ -f "$DEPLOY_DIR/configure-ip-access.sh" ]; then
       SERVER_IP=$(curl -s -4 --connect-timeout 5 ifconfig.me 2>/dev/null || echo "localhost")
       ./configure-ip-access.sh "$SERVER_IP"
