@@ -243,25 +243,21 @@ stage_3_fetch_config() {
     chown ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   fi
   
-  # Pull the configuration image
-  print_header "Pulling configuration image"
-  if ! retry_command "sudo -u ${SUDO_USER} docker pull $CONFIG_IMAGE"; then
-    print_error "Failed to pull configuration image: $CONFIG_IMAGE"
+  # Clone orchestrator repository
+  print_header "Cloning orchestrator configuration"
+  TEMP_DIR="/tmp/invisible-orchestrator-$$"
+  if ! retry_command "git clone https://github.com/invisible-life/orchestrator.git $TEMP_DIR"; then
+    print_error "Failed to clone orchestrator repository"
     exit 1
   fi
   
-  # Create a temporary container to extract files
-  CONTAINER_ID=$(sudo -u ${SUDO_USER} docker create "$CONFIG_IMAGE")
+  print_header "Copying configuration files"
+  # Copy all files from orchestrator to deploy directory
+  cp -r "$TEMP_DIR"/* "$DEPLOY_DIR/"
+  chown -R ${SUDO_USER}:${SUDO_USER} "$DEPLOY_DIR"
   
-  print_header "Extracting configuration files"
-  if ! sudo -u ${SUDO_USER} docker cp "$CONTAINER_ID:/config/." "$DEPLOY_DIR"; then
-    print_error "Failed to extract configuration files"
-    docker rm -v "$CONTAINER_ID" 2>/dev/null || true
-    exit 1
-  fi
-  
-  # Clean up container
-  sudo -u ${SUDO_USER} docker rm -v "$CONTAINER_ID"
+  # Clean up temp directory
+  rm -rf "$TEMP_DIR"
   
   # Verify essential files
   local required_files=("setup.sh" "docker-compose.yml")
@@ -283,7 +279,7 @@ stage_3_fetch_config() {
     chmod +x "$DEPLOY_DIR/get-email-code.sh"
   fi
   
-  print_success "Configuration files extracted successfully"
+  print_success "Configuration files fetched successfully"
   
   save_stage 3
 }
