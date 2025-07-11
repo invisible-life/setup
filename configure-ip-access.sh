@@ -149,12 +149,6 @@ services:
       - GOTRUE_MAILER_URLS_SITE_URL=https://$SERVER_IP
       - API_EXTERNAL_URL=https://$SERVER_IP
 
-  # Supabase Studio - Set API URL
-  supabase_studio:
-    environment:
-      - SUPABASE_PUBLIC_URL=https://$SERVER_IP
-      - STUDIO_DEFAULT_URL=https://$SERVER_IP
-
 EOF
 
 print_header "Creating CORS Configuration for API"
