@@ -106,8 +106,6 @@ print_header "Updating Docker Compose Override"
 
 # Create a docker-compose override for IP-based access
 cat > "$DEPLOY_DIR/docker-compose.override.yml" <<EOF
-version: '3.8'
-
 services:
   # API Service - Add CORS for IP access
   api:
