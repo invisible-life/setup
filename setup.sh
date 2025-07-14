@@ -265,7 +265,6 @@ run_setup() {
   docker run --rm -it \
     -v "$DEPLOY_DIR:/opt/invisible" \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    -v "$DOCKER_BIN:/usr/bin/docker:ro" \
     -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
     -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
     --network host \
