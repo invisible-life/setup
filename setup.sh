@@ -253,10 +253,19 @@ run_setup() {
   echo ""
   echo "=== Orchestrator Container Started ==="
   
+  # Find Docker binary location
+  if [ -f "/snap/bin/docker" ]; then
+    DOCKER_BIN="/snap/bin/docker"
+  elif [ -f "/usr/bin/docker" ]; then
+    DOCKER_BIN="/usr/bin/docker"
+  else
+    DOCKER_BIN=$(which docker 2>/dev/null || echo "/usr/bin/docker")
+  fi
+  
   docker run --rm -it \
     -v "$DEPLOY_DIR:/opt/invisible" \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    -v /usr/bin/docker:/usr/bin/docker \
+    -v "$DOCKER_BIN:/usr/bin/docker:ro" \
     -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
     -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
     --network host \
