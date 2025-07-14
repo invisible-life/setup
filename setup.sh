@@ -101,6 +101,12 @@ reset_system() {
   print_info "Cleaning up Docker system..."
   docker system prune -af --volumes 2>/dev/null || true
   
+  # Remove Invisible-specific volumes
+  print_info "Removing Invisible platform volumes..."
+  for volume in $(docker volume ls -q | grep -E "^(app_|invisible_)(caddy_|supabase_|postgres_)"); do
+    docker volume rm "$volume" 2>/dev/null || true
+  done
+  
   # Remove deployment directory
   if [ -d "$DEPLOY_DIR" ]; then
     print_info "Removing deployment directory..."
