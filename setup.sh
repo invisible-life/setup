@@ -146,9 +146,17 @@ reset_system() {
   print_info "Removing all Docker images..."
   docker rmi $(docker images -aq) 2>/dev/null || true
   
+  # Force remove the deploy image specifically to ensure fresh pull
+  print_info "Force removing deploy image to ensure fresh pull on next run..."
+  docker rmi invisiblelife/deploy:latest 2>/dev/null || true
+  
   # Clean up Docker system
   print_info "Cleaning up Docker system..."
   docker system prune -af --volumes 2>/dev/null || true
+  
+  # Clear Docker build cache to ensure fresh pulls
+  print_info "Clearing Docker build cache..."
+  docker builder prune -af 2>/dev/null || true
   
   # Remove Invisible-specific volumes
   print_info "Removing Invisible platform volumes..."
