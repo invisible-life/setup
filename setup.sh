@@ -68,6 +68,7 @@ reset_system() {
   print_header "COMPLETE SYSTEM RESET"
   print_warning "This will completely remove all Invisible platform components!"
   print_warning "This includes:"
+  echo "  • All Kubernetes/k3s resources and cluster"
   echo "  • All Docker containers and images"
   echo "  • All platform data and configurations"
   echo "  • All port bindings and network configurations"
@@ -84,6 +85,45 @@ reset_system() {
   fi
   
   print_info "Starting complete system reset..."
+  
+  # Check if k3s/kubectl is available and clean up Kubernetes resources
+  if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
+    print_info "Removing Kubernetes resources..."
+    
+    # Delete all resources in invisible namespace
+    print_info "Deleting invisible namespace and all resources..."
+    kubectl delete namespace invisible --force --grace-period=0 2>/dev/null || true
+    
+    # Delete ArgoCD if it exists
+    print_info "Removing ArgoCD..."
+    kubectl delete namespace argocd --force --grace-period=0 2>/dev/null || true
+    
+    # Delete any remaining PVCs in all namespaces
+    print_info "Cleaning up persistent volume claims..."
+    kubectl delete pvc --all --all-namespaces --force --grace-period=0 2>/dev/null || true
+    
+    # Delete any remaining PVs
+    print_info "Cleaning up persistent volumes..."
+    kubectl delete pv --all --force --grace-period=0 2>/dev/null || true
+  fi
+  
+  # Uninstall k3s completely if it exists
+  if command -v k3s-uninstall.sh >/dev/null 2>&1; then
+    print_info "Uninstalling k3s..."
+    k3s-uninstall.sh 2>/dev/null || true
+  fi
+  
+  # Clean up k3s data directory if it still exists
+  if [ -d "/var/lib/rancher/k3s" ]; then
+    print_info "Removing k3s data directory..."
+    rm -rf /var/lib/rancher/k3s
+  fi
+  
+  # Clean up k3s config directory
+  if [ -d "/etc/rancher/k3s" ]; then
+    print_info "Removing k3s config directory..."
+    rm -rf /etc/rancher/k3s
+  fi
   
   # Stop all running containers
   print_info "Stopping all Docker containers..."
@@ -103,7 +143,7 @@ reset_system() {
   
   # Remove Invisible-specific volumes
   print_info "Removing Invisible platform volumes..."
-  for volume in $(docker volume ls -q | grep -E "^(app_|invisible_)(caddy_|supabase_|postgres_)"); do
+  for volume in $(docker volume ls -q | grep -E "^(app_|invisible_|k8s_)"); do
     docker volume rm "$volume" 2>/dev/null || true
   done
   
@@ -117,17 +157,46 @@ reset_system() {
   print_info "Removing environment files from current directory..."
   rm -f .env .env.* *.env 2>/dev/null || true
   
+  # Remove kubeconfig if it exists
+  if [ -f "$HOME/.kube/config" ]; then
+    print_info "Removing kubeconfig..."
+    rm -f "$HOME/.kube/config"
+  fi
+  
   # Kill any processes using common ports
   print_info "Freeing up common ports..."
-  for port in 80 443 8080 3000 5432 6379; do
+  for port in 80 443 8080 3000 4300 4400 4500 5432 6379 6443 8000 8098 30080 30081 30082 30083 30084; do
     lsof -ti:$port | xargs kill -9 2>/dev/null || true
   done
+  
+  # Clean up any CNI network interfaces
+  print_info "Cleaning up network interfaces..."
+  ip link show | grep -E "cni0|flannel|cali|vxlan" | awk -F: '{print $2}' | xargs -I {} ip link delete {} 2>/dev/null || true
+  
+  # Clean up iptables rules added by k3s
+  print_info "Cleaning up iptables rules..."
+  iptables -F 2>/dev/null || true
+  iptables -X 2>/dev/null || true
+  iptables -t nat -F 2>/dev/null || true
+  iptables -t nat -X 2>/dev/null || true
+  iptables -t mangle -F 2>/dev/null || true
+  iptables -t mangle -X 2>/dev/null || true
+  iptables -P INPUT ACCEPT 2>/dev/null || true
+  iptables -P FORWARD ACCEPT 2>/dev/null || true
+  iptables -P OUTPUT ACCEPT 2>/dev/null || true
   
   # Reset firewall rules (if ufw is installed)
   if command -v ufw >/dev/null 2>&1; then
     print_info "Resetting firewall rules..."
     ufw --force reset 2>/dev/null || true
   fi
+  
+  # Remove any systemd services created by k3s
+  print_info "Cleaning up systemd services..."
+  systemctl stop k3s k3s-agent 2>/dev/null || true
+  systemctl disable k3s k3s-agent 2>/dev/null || true
+  rm -f /etc/systemd/system/k3s.service /etc/systemd/system/k3s-agent.service 2>/dev/null || true
+  systemctl daemon-reload 2>/dev/null || true
   
   print_success "System reset completed successfully!"
   print_info "You can now run the setup script again to reinstall the platform."
@@ -324,10 +393,10 @@ run_setup() {
     -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
     -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
     -e "SERVER_IP=${SERVER_IP:-}" \
-    -e "API_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:4300}" \
-    -e "SUPABASE_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
-    -e "SITE_URL=${NO_DOMAIN:+http://${SERVER_IP}:3000}" \
-    -e "API_EXTERNAL_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
+    -e "API_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:30084}" \
+    -e "SUPABASE_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:30082}" \
+    -e "SITE_URL=${NO_DOMAIN:+http://${SERVER_IP}:30080}" \
+    -e "API_EXTERNAL_URL=${NO_DOMAIN:+http://${SERVER_IP}:30082}" \
     --network host \
     --privileged \
     -w /app \
