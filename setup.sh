@@ -252,62 +252,40 @@ run_setup() {
     fi
   fi
   
-  # Export Docker credentials for deployment scripts
-  export DOCKER_USERNAME
-  export DOCKER_PASSWORD
+  # Prepare deployment arguments
+  DEPLOY_ARGS=()
+  DEPLOY_ARGS+=("--docker-username" "$DOCKER_USERNAME")
+  DEPLOY_ARGS+=("--docker-password" "$DOCKER_PASSWORD")
   
-  # Clone invisible-deploy repository
-  print_info "Cloning deployment repository..."
-  cd "$DEPLOY_DIR"
-  
-  if [ -d "deploy" ]; then
-    print_info "Deploy directory exists, pulling latest changes..."
-    cd deploy
-    git pull origin main
-  else
-    git clone https://github.com/invisible-life/deploy.git deploy
-    cd deploy
-  fi
-  
-  # Set up environment variables
-  print_info "Setting up environment configuration..."
-  
-  # Create .env file from example
-  cp .env.example .env
-  
-  # Update .env with detected IP if using no-domain
-  if [ "$NO_DOMAIN" = "true" ] && [ -n "$SERVER_IP" ]; then
-    print_info "Configuring for IP-based access at $SERVER_IP..."
-    # Update API and Supabase URLs
-    sed -i "s|API_PUBLIC_URL=.*|API_PUBLIC_URL=http://$SERVER_IP:4300|g" .env
-    sed -i "s|SUPABASE_PUBLIC_URL=.*|SUPABASE_PUBLIC_URL=http://$SERVER_IP:8000|g" .env
-    sed -i "s|API_EXTERNAL_URL=.*|API_EXTERNAL_URL=http://$SERVER_IP:8000|g" .env
-    sed -i "s|SITE_URL=.*|SITE_URL=http://$SERVER_IP:3000|g" .env
+  if [ "$NO_DOMAIN" = "true" ]; then
+    DEPLOY_ARGS+=("--no-domain")
+    if [ -n "$SERVER_IP" ]; then
+      DEPLOY_ARGS+=("--ip" "$SERVER_IP")
+    fi
   elif [ -n "$DOMAIN" ]; then
-    print_info "Configuring for domain: $DOMAIN..."
-    # Update URLs for domain
-    sed -i "s|API_PUBLIC_URL=.*|API_PUBLIC_URL=https://api.$DOMAIN|g" .env
-    sed -i "s|SUPABASE_PUBLIC_URL=.*|SUPABASE_PUBLIC_URL=https://api.$DOMAIN|g" .env
-    sed -i "s|API_EXTERNAL_URL=.*|API_EXTERNAL_URL=https://api.$DOMAIN|g" .env
-    sed -i "s|SITE_URL=.*|SITE_URL=https://$DOMAIN|g" .env
+    DEPLOY_ARGS+=("--domain" "$DOMAIN")
   fi
   
-  # Generate secrets
-  print_info "Generating secrets..."
-  ./scripts/generate-secrets.sh
+  # Run deployment container
+  print_info "Running deployment container..."
+  echo ""
+  echo "=== Deployment Container Started ==="
   
-  # Run the deployment
-  print_info "Starting deployment..."
-  if command -v kubectl >/dev/null 2>&1; then
-    # Kubernetes deployment
-    print_info "Kubernetes detected, deploying with ArgoCD..."
-    kubectl create namespace invisible --dry-run=client -o yaml | kubectl apply -f -
-    kubectl apply -f argocd/apps/app-of-apps.yaml
-  else
-    # Docker Compose deployment
-    print_info "Using Docker Compose deployment..."
-    ./scripts/run-supabase-docker.sh
-  fi
+  docker run --rm -it \
+    -v "$DEPLOY_DIR:/opt/invisible" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
+    -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
+    -e "SERVER_IP=${SERVER_IP:-}" \
+    -e "API_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:4300}" \
+    -e "SUPABASE_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
+    -e "SITE_URL=${NO_DOMAIN:+http://${SERVER_IP}:3000}" \
+    -e "API_EXTERNAL_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
+    --network host \
+    --privileged \
+    -w /app \
+    invisiblelife/deploy:latest \
+    scripts/setup.sh "${DEPLOY_ARGS[@]}"
 }
 
 # Initialize variables
