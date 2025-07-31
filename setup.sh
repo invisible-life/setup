@@ -255,9 +255,6 @@ run_setup() {
   
   if [ "$NO_DOMAIN" = "true" ]; then
     ORCHESTRATOR_ARGS+=("--no-domain")
-    if [ -n "$SERVER_IP" ]; then
-      ORCHESTRATOR_ARGS+=("--ip" "$SERVER_IP")
-    fi
   elif [ -n "$DOMAIN" ]; then
     ORCHESTRATOR_ARGS+=("-d" "$DOMAIN")
   fi
