@@ -252,44 +252,62 @@ run_setup() {
     fi
   fi
   
-  # Prepare arguments for orchestrator
-  ORCHESTRATOR_ARGS=()
-  ORCHESTRATOR_ARGS+=("-u" "$DOCKER_USERNAME")
-  ORCHESTRATOR_ARGS+=("-p" "$DOCKER_PASSWORD")
+  # Export Docker credentials for deployment scripts
+  export DOCKER_USERNAME
+  export DOCKER_PASSWORD
   
-  if [ "$NO_DOMAIN" = "true" ]; then
-    ORCHESTRATOR_ARGS+=("--no-domain")
-  elif [ -n "$DOMAIN" ]; then
-    ORCHESTRATOR_ARGS+=("-d" "$DOMAIN")
-  fi
+  # Clone invisible-deploy repository
+  print_info "Cloning deployment repository..."
+  cd "$DEPLOY_DIR"
   
-  # Run orchestrator setup container
-  print_info "Running setup from orchestrator container..."
-  echo ""
-  echo "=== Orchestrator Container Started ==="
-  
-  # Find Docker binary location
-  if [ -f "/snap/bin/docker" ]; then
-    DOCKER_BIN="/snap/bin/docker"
-  elif [ -f "/usr/bin/docker" ]; then
-    DOCKER_BIN="/usr/bin/docker"
+  if [ -d "deploy" ]; then
+    print_info "Deploy directory exists, pulling latest changes..."
+    cd deploy
+    git pull origin main
   else
-    DOCKER_BIN=$(which docker 2>/dev/null || echo "/usr/bin/docker")
+    git clone https://github.com/invisible-life/deploy.git deploy
+    cd deploy
   fi
   
-  docker run --rm -it \
-    -v "$DEPLOY_DIR:/opt/invisible" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
-    -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
-    -e "SERVER_IP=${SERVER_IP:-}" \
-    -e "API_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:4300}" \
-    -e "SUPABASE_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
-    --network host \
-    --privileged \
-    -w /app \
-    invisiblelife/orchestrator:latest \
-    /app/setup/setup.sh "${ORCHESTRATOR_ARGS[@]}"
+  # Set up environment variables
+  print_info "Setting up environment configuration..."
+  
+  # Create .env file from example
+  cp .env.example .env
+  
+  # Update .env with detected IP if using no-domain
+  if [ "$NO_DOMAIN" = "true" ] && [ -n "$SERVER_IP" ]; then
+    print_info "Configuring for IP-based access at $SERVER_IP..."
+    # Update API and Supabase URLs
+    sed -i "s|API_PUBLIC_URL=.*|API_PUBLIC_URL=http://$SERVER_IP:4300|g" .env
+    sed -i "s|SUPABASE_PUBLIC_URL=.*|SUPABASE_PUBLIC_URL=http://$SERVER_IP:8000|g" .env
+    sed -i "s|API_EXTERNAL_URL=.*|API_EXTERNAL_URL=http://$SERVER_IP:8000|g" .env
+    sed -i "s|SITE_URL=.*|SITE_URL=http://$SERVER_IP:3000|g" .env
+  elif [ -n "$DOMAIN" ]; then
+    print_info "Configuring for domain: $DOMAIN..."
+    # Update URLs for domain
+    sed -i "s|API_PUBLIC_URL=.*|API_PUBLIC_URL=https://api.$DOMAIN|g" .env
+    sed -i "s|SUPABASE_PUBLIC_URL=.*|SUPABASE_PUBLIC_URL=https://api.$DOMAIN|g" .env
+    sed -i "s|API_EXTERNAL_URL=.*|API_EXTERNAL_URL=https://api.$DOMAIN|g" .env
+    sed -i "s|SITE_URL=.*|SITE_URL=https://$DOMAIN|g" .env
+  fi
+  
+  # Generate secrets
+  print_info "Generating secrets..."
+  ./scripts/generate-secrets.sh
+  
+  # Run the deployment
+  print_info "Starting deployment..."
+  if command -v kubectl >/dev/null 2>&1; then
+    # Kubernetes deployment
+    print_info "Kubernetes detected, deploying with ArgoCD..."
+    kubectl create namespace invisible --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f argocd/apps/app-of-apps.yaml
+  else
+    # Docker Compose deployment
+    print_info "Using Docker Compose deployment..."
+    ./scripts/run-supabase-docker.sh
+  fi
 }
 
 # Initialize variables
