@@ -48,8 +48,22 @@ SERVER="${2:-127.0.0.1}"
 
 # Determine the Mailpit URL based on server address
 if [ "$SERVER" = "127.0.0.1" ] || [ "$SERVER" = "localhost" ]; then
-    MAILPIT_API="http://127.0.0.1:8025/api/v1/messages"
-    MAILPIT_UI="http://127.0.0.1:8025"
+    # For local access, try kubectl port-forward first if kubectl is available
+    if command -v kubectl >/dev/null 2>&1 && kubectl get pod -n invisible -l app.kubernetes.io/name=mailpit >/dev/null 2>&1; then
+        # Kill any existing port-forward
+        pkill -f "kubectl port-forward.*mailpit" 2>/dev/null || true
+        # Start port-forward in background
+        kubectl port-forward -n invisible service/mailpit 8025:8025 >/dev/null 2>&1 &
+        FORWARD_PID=$!
+        sleep 2  # Give port-forward time to establish
+        MAILPIT_API="http://127.0.0.1:8025/api/v1/messages"
+        MAILPIT_UI="http://127.0.0.1:8025"
+        # Ensure we clean up on exit
+        trap "kill $FORWARD_PID 2>/dev/null || true" EXIT
+    else
+        MAILPIT_API="http://127.0.0.1:8025/api/v1/messages"
+        MAILPIT_UI="http://127.0.0.1:8025"
+    fi
 elif [[ "$SERVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     # IP address - use port 54324 (mapped port)
     MAILPIT_API="http://$SERVER:54324/api/v1/messages"
