@@ -113,6 +113,10 @@ reset_system() {
     rm -rf "$DEPLOY_DIR"
   fi
   
+  # Remove any .env files in the current directory
+  print_info "Removing environment files from current directory..."
+  rm -f .env .env.* *.env 2>/dev/null || true
+  
   # Kill any processes using common ports
   print_info "Freeing up common ports..."
   for port in 80 443 8080 3000 5432 6379; do
