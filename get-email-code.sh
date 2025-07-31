@@ -48,18 +48,12 @@ SERVER="${2:-127.0.0.1}"
 
 # Determine the Mailpit URL based on server address
 if [ "$SERVER" = "127.0.0.1" ] || [ "$SERVER" = "localhost" ]; then
-    # For local access, try kubectl port-forward first if kubectl is available
+    # For local access, try kubectl exec first if kubectl is available
     if command -v kubectl >/dev/null 2>&1 && kubectl get pod -n invisible -l app.kubernetes.io/name=mailpit >/dev/null 2>&1; then
-        # Kill any existing port-forward
-        pkill -f "kubectl port-forward.*mailpit" 2>/dev/null || true
-        # Start port-forward in background
-        kubectl port-forward -n invisible service/mailpit 8025:8025 >/dev/null 2>&1 &
-        FORWARD_PID=$!
-        sleep 2  # Give port-forward time to establish
-        MAILPIT_API="http://127.0.0.1:8025/api/v1/messages"
+        # Use kubectl exec instead of port-forward for reliability
+        USE_KUBECTL_EXEC=true
+        MAILPIT_API="http://localhost:8025/api/v1/messages"
         MAILPIT_UI="http://127.0.0.1:8025"
-        # Ensure we clean up on exit
-        trap "kill $FORWARD_PID 2>/dev/null || true" EXIT
     else
         MAILPIT_API="http://127.0.0.1:8025/api/v1/messages"
         MAILPIT_UI="http://127.0.0.1:8025"
@@ -79,7 +73,11 @@ echo "--> Searching for emails sent to: $USER_EMAIL"
 echo ""
 
 # Get all messages
-MESSAGES=$(curl -s "$MAILPIT_API" 2>/dev/null || echo '{"messages":[]}')
+if [ "$USE_KUBECTL_EXEC" = "true" ]; then
+    MESSAGES=$(kubectl exec -n invisible deployment/mailpit -- wget -q -O - "$MAILPIT_API" 2>/dev/null || echo '{"messages":[]}')
+else
+    MESSAGES=$(curl -s "$MAILPIT_API" 2>/dev/null || echo '{"messages":[]}')
+fi
 
 if [ "$MESSAGES" = '{"messages":[]}' ]; then
     echo "❌ Could not connect to Mailpit at $MAILPIT_API"
@@ -115,8 +113,12 @@ echo "Found email: $MESSAGE_SUBJECT"
 echo "--> Message ID: $MESSAGE_ID"
 echo ""
 
-# Get the full message
-MESSAGE=$(curl -s "$MAILPIT_API/$MESSAGE_ID")
+# Get the full message (note: singular 'message' not 'messages')
+if [ "$USE_KUBECTL_EXEC" = "true" ]; then
+    MESSAGE=$(kubectl exec -n invisible deployment/mailpit -- wget -q -O - "http://localhost:8025/api/v1/message/$MESSAGE_ID" 2>/dev/null)
+else
+    MESSAGE=$(curl -s "${MAILPIT_API%/messages}/message/$MESSAGE_ID")
+fi
 
 # Extract HTML and Text bodies
 HTML_BODY=$(echo "$MESSAGE" | jq -r '.HTML // empty')
