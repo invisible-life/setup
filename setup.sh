@@ -237,6 +237,17 @@ run_setup() {
   print_info "Setting up deployment directory..."
   mkdir -p "$DEPLOY_DIR"
   
+  # Auto-detect server IP if using IP-based access
+  if [ "$NO_DOMAIN" = "true" ]; then
+    print_info "Auto-detecting server IP address..."
+    SERVER_IP=$(curl -s -4 ifconfig.me 2>/dev/null || echo "")
+    if [ -n "$SERVER_IP" ]; then
+      print_success "Detected IP: $SERVER_IP"
+    else
+      print_warning "Could not auto-detect IP. The setup will continue but you may need to configure it manually."
+    fi
+  fi
+  
   # Prepare arguments for orchestrator
   ORCHESTRATOR_ARGS=()
   ORCHESTRATOR_ARGS+=("-u" "$DOCKER_USERNAME")
@@ -244,6 +255,9 @@ run_setup() {
   
   if [ "$NO_DOMAIN" = "true" ]; then
     ORCHESTRATOR_ARGS+=("--no-domain")
+    if [ -n "$SERVER_IP" ]; then
+      ORCHESTRATOR_ARGS+=("--ip" "$SERVER_IP")
+    fi
   elif [ -n "$DOMAIN" ]; then
     ORCHESTRATOR_ARGS+=("-d" "$DOMAIN")
   fi
@@ -267,6 +281,9 @@ run_setup() {
     -v /var/run/docker.sock:/var/run/docker.sock \
     -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
     -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
+    -e "SERVER_IP=${SERVER_IP:-}" \
+    -e "API_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:4300}" \
+    -e "SUPABASE_PUBLIC_URL=${NO_DOMAIN:+http://${SERVER_IP}:8000}" \
     --network host \
     --privileged \
     -w /app \
