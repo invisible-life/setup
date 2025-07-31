@@ -252,10 +252,50 @@ run_setup() {
     fi
   fi
   
+  # Check if user wants Kubernetes deployment
+  print_question "Do you want to deploy with Kubernetes (k3s)? (y/n)"
+  print_info "Choose 'n' for Docker Compose deployment"
+  read -r use_kubernetes
+  
+  if [[ $use_kubernetes =~ ^[Yy]$ ]]; then
+    # Install k3s on the host if not present
+    if ! command -v kubectl >/dev/null 2>&1 || ! kubectl cluster-info >/dev/null 2>&1; then
+      print_info "Installing k3s on host system..."
+      curl -sfL https://get.k3s.io | sh -
+      
+      # Wait for k3s to be ready
+      print_info "Waiting for k3s to be ready..."
+      sleep 10
+      
+      # Export kubeconfig for current session
+      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+      
+      # Wait for node to be ready
+      print_info "Waiting for k3s node to be ready..."
+      until kubectl get nodes | grep -q " Ready"; do
+        echo -n "."
+        sleep 5
+      done
+      echo ""
+      print_success "k3s installed successfully!"
+    else
+      print_info "Kubernetes cluster already detected"
+    fi
+  fi
+  
   # Prepare deployment arguments
   DEPLOY_ARGS=()
   DEPLOY_ARGS+=("--docker-username" "$DOCKER_USERNAME")
   DEPLOY_ARGS+=("--docker-password" "$DOCKER_PASSWORD")
+  
+  # Add deployment mode flag
+  if [[ $use_kubernetes =~ ^[Yy]$ ]]; then
+    # Kubernetes deployment - no flag needed as it's default
+    :
+  else
+    # Use Docker Compose
+    DEPLOY_ARGS+=("--docker-compose")
+  fi
   
   if [ "$NO_DOMAIN" = "true" ]; then
     DEPLOY_ARGS+=("--no-domain")
@@ -271,9 +311,16 @@ run_setup() {
   echo ""
   echo "=== Deployment Container Started ==="
   
+  # Mount kubeconfig if using Kubernetes
+  KUBECONFIG_MOUNT=""
+  if [[ $use_kubernetes =~ ^[Yy]$ ]] && [ -f /etc/rancher/k3s/k3s.yaml ]; then
+    KUBECONFIG_MOUNT="-v /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro"
+  fi
+  
   docker run --rm -it \
     -v "$DEPLOY_DIR:/opt/invisible" \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    $KUBECONFIG_MOUNT \
     -e "DOCKER_USERNAME=$DOCKER_USERNAME" \
     -e "DOCKER_PASSWORD=$DOCKER_PASSWORD" \
     -e "SERVER_IP=${SERVER_IP:-}" \
