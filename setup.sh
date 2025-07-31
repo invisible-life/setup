@@ -50,6 +50,7 @@ usage() {
   echo ""
   echo "Options:"
   echo "  --reset               Complete reset - remove all containers, images, and data"
+  echo "  --force-reset         Force reset without prompts (IMMEDIATE teardown)"
   echo "  --non-interactive     Run in non-interactive mode (requires all parameters)"
   echo "  -u, --username USER   Docker Hub username"
   echo "  -p, --password PASS   Docker Hub password"
@@ -60,6 +61,7 @@ usage() {
   echo "Examples:"
   echo "  sudo $0                                    # Interactive setup"
   echo "  sudo $0 --reset                           # Complete system reset"
+  echo "  sudo $0 --force-reset                      # Immediate teardown (no prompts)"
   echo "  sudo $0 --non-interactive -u user -p pass --no-domain"
 }
 
@@ -75,7 +77,7 @@ reset_system() {
   echo "  • Deployment directory: $DEPLOY_DIR"
   echo ""
   
-  if [ "$INTERACTIVE" = "true" ]; then
+  if [ "$INTERACTIVE" = "true" ] && [ "$FORCE_RESET" != "true" ]; then
     print_question "Are you absolutely sure you want to proceed? (type 'YES' to confirm)"
     read -r confirmation
     if [ "$confirmation" != "YES" ]; then
@@ -86,30 +88,37 @@ reset_system() {
   
   print_info "Starting complete system reset..."
   
-  # Check if k3s/kubectl is available and clean up Kubernetes resources
-  if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
-    print_info "Removing Kubernetes resources..."
-    
-    # Delete all resources in invisible namespace
-    print_info "Deleting invisible namespace and all resources..."
-    kubectl delete namespace invisible --force --grace-period=0 2>/dev/null || true
-    
-    # Delete ArgoCD if it exists
-    print_info "Removing ArgoCD..."
-    kubectl delete namespace argocd --force --grace-period=0 2>/dev/null || true
-    
-    # Delete any remaining PVCs in all namespaces
-    print_info "Cleaning up persistent volume claims..."
-    kubectl delete pvc --all --all-namespaces --force --grace-period=0 2>/dev/null || true
-    
-    # Delete any remaining PVs
-    print_info "Cleaning up persistent volumes..."
-    kubectl delete pv --all --force --grace-period=0 2>/dev/null || true
+  # If force reset, skip k8s cleanup and go straight to k3s uninstall
+  if [ "$FORCE_RESET" = "true" ]; then
+    print_warning "FORCE RESET: Skipping graceful cleanup, going straight to teardown..."
+  else
+    # Check if k3s/kubectl is available and clean up Kubernetes resources
+    if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
+      print_info "Removing Kubernetes resources..."
+      
+      # First, patch all namespaces to remove finalizers (faster deletion)
+      print_info "Removing namespace finalizers for faster deletion..."
+      for ns in invisible argocd; do
+        kubectl get namespace "$ns" -o json 2>/dev/null | \
+          jq '.spec.finalizers = []' | \
+          kubectl replace --raw /api/v1/namespaces/"$ns"/finalize -f - 2>/dev/null || true
+      done
+      
+      # Now delete namespaces (will be much faster)
+      print_info "Deleting namespaces..."
+      kubectl delete namespace invisible argocd --force --grace-period=0 --wait=false 2>/dev/null || true
+      
+      # Don't wait for PVCs/PVs - just mark them for deletion
+      print_info "Marking storage for deletion..."
+      kubectl delete pvc --all --all-namespaces --force --grace-period=0 --wait=false 2>/dev/null || true
+      kubectl delete pv --all --force --grace-period=0 --wait=false 2>/dev/null || true
+    fi
   fi
   
-  # Uninstall k3s completely if it exists
+  # For REALLY fast teardown, just uninstall k3s immediately
+  # This will forcefully remove everything k8s-related
   if command -v k3s-uninstall.sh >/dev/null 2>&1; then
-    print_info "Uninstalling k3s..."
+    print_warning "Force uninstalling k3s (this removes EVERYTHING immediately)..."
     k3s-uninstall.sh 2>/dev/null || true
   fi
   
@@ -411,12 +420,19 @@ DOCKER_PASSWORD=""
 DOMAIN=""
 NO_DOMAIN="false"
 RESET="false"
+FORCE_RESET="false"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --reset)
       RESET="true"
+      shift
+      ;;
+    --force-reset)
+      RESET="true"
+      FORCE_RESET="true"
+      INTERACTIVE="false"
       shift
       ;;
     --non-interactive)
